@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Aero-Sense",
+    "slug": "aerosense-mobile",
+    "scheme": "aerosense",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aerosense.mobile",
+      "infoPlist": {
+        "NFCReaderUsageDescription": "Aero-Sense uses NFC to scan aircraft component tags and verify their identity and maintenance record integrity."
+      }
+    },
+    "android": {
+      "package": "com.aerosense.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1D2E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.NFC"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "Aero-Sense uses NFC to scan aircraft component tags and verify their identity and maintenance record integrity.",
+          "selectIdentifiers": [],
+          "systemCodes": []
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrlDefault": "http://localhost:8080/api"
+    }
+  }
+}

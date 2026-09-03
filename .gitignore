@@ -1,0 +1,73 @@
+# ================================
+# Environment / Secrets
+# ================================
+.env
+.env.*
+!.env.example
+
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Auto-generated JWT signing secret (created on first run if JWT_SECRET
+# isn't set in the environment) — machine-specific, never commit it.
+backend/.jwt_secret
+.jwt_secret
+
+# ================================
+# Rust build artifacts
+# ================================
+target/
+backend/target/
+
+# ================================
+# Rust / IDE files
+# ================================
+Cargo.lock
+
+# ================================
+# VS Code
+# ================================
+.vscode/
+*.code-workspace
+
+# ================================
+# IntelliJ / JetBrains
+# ================================
+.idea/
+*.iml
+
+# ================================
+# Windows
+# ================================
+Thumbs.db
+Desktop.ini
+
+# ================================
+# Logs
+# ================================
+*.log
+
+# ================================
+# Node / Frontend
+# ================================
+node_modules/
+dist/
+build/
+
+# ================================
+# Temporary files
+# ================================
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# ================================
+# Database
+# ================================
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
