@@ -4,6 +4,25 @@
  * optionality match the backend exactly — these are sent as JSON verbatim.
  */
 
+// ── Companies (Super Admin, backend/src/models/company.rs) ──────────────────
+
+export interface CreateCompanyRequest {
+  name: string;
+  /** Optional — auto-generated from name when omitted. */
+  slug?: string;
+}
+
+export interface CreateCompanyAdminRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface UpdateCompanyStatusRequest {
+  /** e.g. "ACTIVE" | "SUSPENDED" */
+  status: string;
+}
+
 export interface LoginRequest {
   /** Must exactly match (case-insensitive) the account's real company
    * name, or literally "Super Admin" for the platform Super Admin. This is

@@ -29,6 +29,13 @@ export interface AuthResponse {
   user: User;
 }
 
+/**
+ * Backend's `UserResponse` (backend/src/models/user.rs) has identical fields
+ * to `User` minus `password_hash` (which is `#[serde(skip_serializing)]`).
+ * Used for API responses that return user data without auth context.
+ */
+export type UserResponse = User;
+
 // ---- Companies (Super Admin platform management) -------------------------
 
 export interface Company {
