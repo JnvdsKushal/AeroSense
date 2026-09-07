@@ -40,7 +40,10 @@
       ]
     ],
     "extra": {
-      "apiBaseUrlDefault": "http://localhost:8080/api"
+      "apiBaseUrlDefault": "http://localhost:8080/api",
+      "eas": {
+        "projectId": "60c87441-e8c3-44ef-9dee-9498bc114d95"
+      }
     }
   }
 }
