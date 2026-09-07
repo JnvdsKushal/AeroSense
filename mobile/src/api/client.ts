@@ -17,6 +17,15 @@ import { secureStorage } from '../services/storage/secureStorage';
  *   `AuthContext`) can react to a 401 by clearing session state and
  *   letting the root navigator's auth check naturally show the login
  *   screen. This file has no knowledge of navigation or React state.
+ *
+ * FIX: The 401 interceptor previously fired `unauthorizedListener` for
+ * ANY 401 except `/auth/me`. This incorrectly triggered a global session
+ * reset on a failed login attempt (wrong password → 401 from /auth/login),
+ * which raced against the `authStore.login()` catch block and could leave
+ * the store in an inconsistent state. Now only POST /auth/login is also
+ * exempted: a 401 from the login endpoint is a credential error handled
+ * entirely by `authStore.login()`'s own catch block — it is NOT a
+ * session-expiry event that should blow away the auth state globally.
  */
 
 const REQUEST_TIMEOUT_MS = 15000;
@@ -45,16 +54,33 @@ export function onUnauthorized(listener: UnauthorizedListener): void {
   unauthorizedListener = listener;
 }
 
+/**
+ * Endpoints that handle their own 401 logic and must NOT trigger the global
+ * session-reset. Adding an endpoint here means a 401 from it is treated as a
+ * domain/validation error (caught by the caller) rather than a session expiry.
+ */
+function isAuthEndpoint(url: string | undefined): boolean {
+  if (!url) return false;
+  // /auth/me  — bootstrap checks an existing token; 401 means no valid session
+  //             yet, handled by bootstrap's catch block.
+  // /auth/login — credential failure; 401 is caught by authStore.login().
+  // /auth/change-password — authenticated endpoint; 401 here means the session
+  //             truly expired and IS a valid trigger for the global reset.
+  return url.endsWith('/auth/me') || url.endsWith('/auth/login');
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const status = error?.response?.status;
     const url: string | undefined = error?.config?.url;
 
-    // GET /auth/me is exempt for the same reason as the web frontend: the
-    // auth bootstrap flow already treats a 401 there as "no valid session
-    // yet" rather than "session expired" — see AuthContext's init logic.
-    if (status === 401 && !url?.endsWith('/auth/me')) {
+    console.log('[API] ERROR INTERCEPTOR: status =', status, ', url =', url);
+
+    // Only trigger the global session reset for a 401 on a protected endpoint.
+    // Login and getMe 401s are handled by their respective callers.
+    if (status === 401 && !isAuthEndpoint(url)) {
+      console.log('[API] SESSION EXPIRED: clearing token and resetting auth state');
       await secureStorage.clearToken();
       unauthorizedListener?.();
     }
