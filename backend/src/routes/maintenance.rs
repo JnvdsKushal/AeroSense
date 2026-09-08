@@ -22,13 +22,12 @@ pub async fn create_maintenance(
     let company_id = require_company_scope(&user)?;
 
     // Verify the component exists *and belongs to the caller's own company*.
-    let comp_exists: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM components WHERE id = ? AND company_id = ?"
-    )
-    .bind(req.component_id)
-    .bind(company_id)
-    .fetch_optional(&pool)
-    .await?;
+    let comp_exists: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM components WHERE id = $1 AND company_id = $2")
+            .bind(req.component_id)
+            .bind(company_id)
+            .fetch_optional(&pool)
+            .await?;
 
     if comp_exists.is_none() {
         return Err(AppError::ComponentNotFound);
@@ -46,10 +45,10 @@ pub async fn create_maintenance(
         &created_at,
     );
 
-    let res = sqlx::query(
+    let record_id: i64 = sqlx::query_scalar(
         "INSERT INTO maintenance_records
          (component_id, technician_id, maintenance_type, description, parts_replaced, inspection_result, record_hash, created_at, company_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
     )
     .bind(req.component_id)
     .bind(user.0.sub)
@@ -60,13 +59,13 @@ pub async fn create_maintenance(
     .bind(&record_hash)
     .bind(&created_at)
     .bind(company_id)
-    .execute(&pool)
+    .fetch_one(&pool)
     .await?;
 
-    let record_id = res.last_insert_rowid();
-
     // Store hash proof on Blockchain
-    blockchain.store_record_hash(record_id, record_hash.clone()).await?;
+    blockchain
+        .store_record_hash(record_id, record_hash.clone())
+        .await?;
 
     let tech_name = user.0.name.clone();
 
@@ -82,7 +81,9 @@ pub async fn create_maintenance(
             parts_replaced: req.parts_replaced,
             inspection_result: req.inspection_result,
             record_hash,
-            created_at,
+            created_at: chrono::DateTime::parse_from_rfc3339(&created_at)
+                .unwrap()
+                .with_timezone(&chrono::Utc),
         }),
     ))
 }
@@ -93,16 +94,15 @@ pub async fn list_maintenance(
 ) -> Result<Json<Vec<MaintenanceRecordResponse>>, AppError> {
     let company_id = require_company_scope(&user)?;
 
-    let records: Vec<MaintenanceRecord> = sqlx::query_as(
-        "SELECT * FROM maintenance_records WHERE company_id = ? ORDER BY id DESC"
-    )
-    .bind(company_id)
-    .fetch_all(&pool)
-    .await?;
+    let records: Vec<MaintenanceRecord> =
+        sqlx::query_as("SELECT * FROM maintenance_records WHERE company_id = $1 ORDER BY id DESC")
+            .bind(company_id)
+            .fetch_all(&pool)
+            .await?;
 
     let mut responses = Vec::new();
     for r in records {
-        let tech_name: Option<(String,)> = sqlx::query_as("SELECT name FROM users WHERE id = ?")
+        let tech_name: Option<(String,)> = sqlx::query_as("SELECT name FROM users WHERE id = $1")
             .bind(r.technician_id)
             .fetch_optional(&pool)
             .await?;
@@ -111,7 +111,9 @@ pub async fn list_maintenance(
             id: r.id,
             component_id: r.component_id,
             technician_id: r.technician_id,
-            technician_name: tech_name.map(|t| t.0).unwrap_or_else(|| "Unknown Tech".to_string()),
+            technician_name: tech_name
+                .map(|t| t.0)
+                .unwrap_or_else(|| "Unknown Tech".to_string()),
             maintenance_type: r.maintenance_type,
             description: r.description,
             parts_replaced: r.parts_replaced,
@@ -132,7 +134,7 @@ pub async fn get_component_history(
     let company_id = require_company_scope(&user)?;
 
     let records: Vec<MaintenanceRecord> = sqlx::query_as(
-        "SELECT * FROM maintenance_records WHERE component_id = ? AND company_id = ? ORDER BY id DESC"
+        "SELECT * FROM maintenance_records WHERE component_id = $1 AND company_id = $2 ORDER BY id DESC"
     )
     .bind(component_id)
     .bind(company_id)
@@ -141,7 +143,7 @@ pub async fn get_component_history(
 
     let mut responses = Vec::new();
     for r in records {
-        let tech_name: Option<(String,)> = sqlx::query_as("SELECT name FROM users WHERE id = ?")
+        let tech_name: Option<(String,)> = sqlx::query_as("SELECT name FROM users WHERE id = $1")
             .bind(r.technician_id)
             .fetch_optional(&pool)
             .await?;
@@ -150,7 +152,9 @@ pub async fn get_component_history(
             id: r.id,
             component_id: r.component_id,
             technician_id: r.technician_id,
-            technician_name: tech_name.map(|t| t.0).unwrap_or_else(|| "Unknown Tech".to_string()),
+            technician_name: tech_name
+                .map(|t| t.0)
+                .unwrap_or_else(|| "Unknown Tech".to_string()),
             maintenance_type: r.maintenance_type,
             description: r.description,
             parts_replaced: r.parts_replaced,

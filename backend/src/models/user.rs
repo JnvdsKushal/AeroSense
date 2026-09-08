@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -55,7 +56,7 @@ pub struct User {
     /// `None` only for the platform Super Admin. Every other user belongs to
     /// exactly one company and every query is scoped by this value.
     pub company_id: Option<i64>,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,7 +67,7 @@ pub struct UserResponse {
     pub email: String,
     pub role: String,
     pub company_id: Option<i64>,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 impl From<User> for UserResponse {

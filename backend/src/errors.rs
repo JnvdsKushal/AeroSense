@@ -70,12 +70,18 @@ pub struct ErrorResponse {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code, message) = match &self {
-            AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, "VALIDATION_ERROR", msg.clone()),
+            AppError::ValidationError(msg) => {
+                (StatusCode::BAD_REQUEST, "VALIDATION_ERROR", msg.clone())
+            }
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", msg.clone()),
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, "FORBIDDEN", msg.clone()),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg.clone()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT", msg.clone()),
-            AppError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", msg.clone()),
+            AppError::TooManyRequests(msg) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "TOO_MANY_REQUESTS",
+                msg.clone(),
+            ),
             AppError::InvalidNfc(msg) => (StatusCode::BAD_REQUEST, "INVALID_NFC", msg.clone()),
             AppError::NfcTagNotRegistered => (
                 StatusCode::NOT_FOUND,
@@ -92,9 +98,21 @@ impl IntoResponse for AppError {
                 "COMPONENT_NOT_FOUND",
                 "Specified component could not be found.".to_string(),
             ),
-            AppError::ComponentBindingFailed(msg) => (StatusCode::BAD_REQUEST, "COMPONENT_BINDING_FAILED", msg.clone()),
-            AppError::TamperDetected(msg) => (StatusCode::UNPROCESSABLE_ENTITY, "TAMPER_DETECTED", msg.clone()),
-            AppError::BlockchainMismatch(msg) => (StatusCode::UNPROCESSABLE_ENTITY, "BLOCKCHAIN_MISMATCH", msg.clone()),
+            AppError::ComponentBindingFailed(msg) => (
+                StatusCode::BAD_REQUEST,
+                "COMPONENT_BINDING_FAILED",
+                msg.clone(),
+            ),
+            AppError::TamperDetected(msg) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "TAMPER_DETECTED",
+                msg.clone(),
+            ),
+            AppError::BlockchainMismatch(msg) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "BLOCKCHAIN_MISMATCH",
+                msg.clone(),
+            ),
             AppError::DatabaseError(err) => {
                 // Log the real error server-side (may contain schema/query
                 // details) but never hand it back to the client.

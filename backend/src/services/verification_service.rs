@@ -19,7 +19,10 @@ impl VerificationService {
         blockchain_service: &BlockchainService,
         req: NfcVerificationRequest,
     ) -> Result<VerificationResponse, AppError> {
-        info!("Running verification pipeline for tag identifier: {}", req.tag_identifier);
+        info!(
+            "Running verification pipeline for tag identifier: {}",
+            req.tag_identifier
+        );
 
         // Handle simulation overrides if specified
         if let Some(scenario) = &req.simulate_scenario {
@@ -35,9 +38,13 @@ impl VerificationService {
                             tamper_status: false,
                             blockchain_integrity: false,
                         },
-                        failure_reason: Some("NFC tag is not registered to any aircraft component".to_string()),
+                        failure_reason: Some(
+                            "NFC tag is not registered to any aircraft component".to_string(),
+                        ),
                     };
-                    Self::log_verification(pool, company_id, None, None, &res).await.ok();
+                    Self::log_verification(pool, company_id, None, None, &res)
+                        .await
+                        .ok();
                     return Ok(res);
                 }
                 "INVALID_TAG" => {
@@ -53,12 +60,14 @@ impl VerificationService {
                         },
                         failure_reason: Some("NFC cryptographic authentication failed".to_string()),
                     };
-                    Self::log_verification(pool, company_id, None, None, &res).await.ok();
+                    Self::log_verification(pool, company_id, None, None, &res)
+                        .await
+                        .ok();
                     return Ok(res);
                 }
                 "TAMPERED_TAG" => {
                     let tag_opt: Option<ComponentTag> = sqlx::query_as(
-                        "SELECT * FROM component_tags WHERE identifier = ? AND company_id = ?"
+                        "SELECT * FROM component_tags WHERE identifier = $1 AND company_id = $2",
                     )
                     .bind(&req.tag_identifier)
                     .bind(company_id)
@@ -66,7 +75,9 @@ impl VerificationService {
                     .await?;
 
                     let comp_info = if let Some(ref t) = tag_opt {
-                        Self::fetch_component_info(pool, company_id, t.component_id).await.ok()
+                        Self::fetch_component_info(pool, company_id, t.component_id)
+                            .await
+                            .ok()
                     } else {
                         Some(VerificationComponentInfo {
                             id: "ENG-0001".to_string(),
@@ -85,7 +96,9 @@ impl VerificationService {
                             tamper_status: false,
                             blockchain_integrity: true,
                         },
-                        failure_reason: Some("Unauthorized physical tamper condition detected on tag".to_string()),
+                        failure_reason: Some(
+                            "Unauthorized physical tamper condition detected on tag".to_string(),
+                        ),
                     };
                     Self::log_verification(
                         pool,
@@ -100,7 +113,7 @@ impl VerificationService {
                 }
                 "BLOCKCHAIN_MISMATCH" => {
                     let tag_opt: Option<ComponentTag> = sqlx::query_as(
-                        "SELECT * FROM component_tags WHERE identifier = ? AND company_id = ?"
+                        "SELECT * FROM component_tags WHERE identifier = $1 AND company_id = $2",
                     )
                     .bind(&req.tag_identifier)
                     .bind(company_id)
@@ -108,7 +121,9 @@ impl VerificationService {
                     .await?;
 
                     let comp_info = if let Some(ref t) = tag_opt {
-                        Self::fetch_component_info(pool, company_id, t.component_id).await.ok()
+                        Self::fetch_component_info(pool, company_id, t.component_id)
+                            .await
+                            .ok()
                     } else {
                         Some(VerificationComponentInfo {
                             id: "ENG-0001".to_string(),
@@ -162,19 +177,22 @@ impl VerificationService {
         // tag identifier that belongs to a different company is indistinguishable
         // from an unregistered tag, so no cross-tenant existence is ever leaked.
         let tag_opt: Option<ComponentTag> = sqlx::query_as(
-            "SELECT * FROM component_tags WHERE identifier = ? AND company_id = ?"
+            "SELECT * FROM component_tags WHERE identifier = $1 AND company_id = $2",
         )
         .bind(&req.tag_identifier)
         .bind(company_id)
         .fetch_optional(pool)
         .await?;
 
-        let (component_binding_passed, tag_id, component_id, comp_info) = if let Some(tag) = &tag_opt {
-            let info = Self::fetch_component_info(pool, company_id, tag.component_id).await.ok();
-            (true, Some(tag.id), Some(tag.component_id), info)
-        } else {
-            (false, None, None, None)
-        };
+        let (component_binding_passed, tag_id, component_id, comp_info) =
+            if let Some(tag) = &tag_opt {
+                let info = Self::fetch_component_info(pool, company_id, tag.component_id)
+                    .await
+                    .ok();
+                (true, Some(tag.id), Some(tag.component_id), info)
+            } else {
+                (false, None, None, None)
+            };
 
         // 3. Tamper Status
         let tamper_passed = if let Some(tag) = &tag_opt {
@@ -188,7 +206,7 @@ impl VerificationService {
             // Fetch latest maintenance record hash if exists (already implicitly
             // scoped: `cid` was only resolved from a tag that matched company_id).
             let record_hash: Option<(String, i64)> = sqlx::query_as(
-                "SELECT record_hash, id FROM maintenance_records WHERE component_id = ? AND company_id = ? ORDER BY id DESC LIMIT 1"
+                "SELECT record_hash, id FROM maintenance_records WHERE component_id = $1 AND company_id = $2 ORDER BY id DESC LIMIT 1"
             )
             .bind(cid)
             .bind(company_id)
@@ -198,7 +216,10 @@ impl VerificationService {
             if let Some((hash, rid)) = record_hash {
                 // Fail closed: an error checking the chain means "not verified",
                 // not "assume it's fine".
-                blockchain_service.verify_record_hash(rid, &hash).await.unwrap_or(false)
+                blockchain_service
+                    .verify_record_hash(rid, &hash)
+                    .await
+                    .unwrap_or(false)
             } else {
                 true // No maintenance records exist yet, so there's nothing to
                      // tamper with — integrity is vacuously valid here (this is
@@ -211,13 +232,29 @@ impl VerificationService {
 
         // Calculate final verdict
         let (verified, status, failure_reason) = if !nfc_auth_passed {
-            (false, "INVALID".to_string(), Some("NFC authentication failed".to_string()))
+            (
+                false,
+                "INVALID".to_string(),
+                Some("NFC authentication failed".to_string()),
+            )
         } else if !component_binding_passed {
-            (false, "INVALID".to_string(), Some("NFC tag is not registered to any component".to_string()))
+            (
+                false,
+                "INVALID".to_string(),
+                Some("NFC tag is not registered to any component".to_string()),
+            )
         } else if !tamper_passed {
-            (false, "SUSPICIOUS".to_string(), Some("TagTamper seal reported physical compromise".to_string()))
+            (
+                false,
+                "SUSPICIOUS".to_string(),
+                Some("TagTamper seal reported physical compromise".to_string()),
+            )
         } else if !blockchain_passed {
-            (false, "SUSPICIOUS".to_string(), Some("Blockchain maintenance record hash mismatch".to_string()))
+            (
+                false,
+                "SUSPICIOUS".to_string(),
+                Some("Blockchain maintenance record hash mismatch".to_string()),
+            )
         } else {
             (true, "AUTHENTIC".to_string(), None)
         };
@@ -235,7 +272,9 @@ impl VerificationService {
             failure_reason,
         };
 
-        Self::log_verification(pool, company_id, component_id, tag_id, &response).await.ok();
+        Self::log_verification(pool, company_id, component_id, tag_id, &response)
+            .await
+            .ok();
 
         Ok(response)
     }
@@ -245,17 +284,19 @@ impl VerificationService {
         company_id: i64,
         component_id: i64,
     ) -> Result<VerificationComponentInfo, AppError> {
-        let comp: Component = sqlx::query_as("SELECT * FROM components WHERE id = ? AND company_id = ?")
-            .bind(component_id)
-            .bind(company_id)
-            .fetch_one(pool)
-            .await?;
+        let comp: Component =
+            sqlx::query_as("SELECT * FROM components WHERE id = $1 AND company_id = $2")
+                .bind(component_id)
+                .bind(company_id)
+                .fetch_one(pool)
+                .await?;
 
         let aircraft_reg = if let Some(aid) = comp.aircraft_id {
-            let reg: Option<(String,)> = sqlx::query_as("SELECT registration_number FROM aircraft WHERE id = ?")
-                .bind(aid)
-                .fetch_optional(pool)
-                .await?;
+            let reg: Option<(String,)> =
+                sqlx::query_as("SELECT registration_number FROM aircraft WHERE id = $1")
+                    .bind(aid)
+                    .fetch_optional(pool)
+                    .await?;
             reg.map(|r| r.0).unwrap_or_else(|| "UNASSIGNED".to_string())
         } else {
             "UNASSIGNED".to_string()
@@ -278,7 +319,7 @@ impl VerificationService {
         sqlx::query(
             "INSERT INTO verification_logs
              (component_id, tag_id, authentication_result, component_binding_result, tamper_result, blockchain_result, final_result, failure_reason, company_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
         )
         .bind(component_id)
         .bind(tag_id)

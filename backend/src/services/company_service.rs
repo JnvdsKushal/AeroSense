@@ -31,25 +31,35 @@ impl CompanyService {
     }
 
     /// Super Admin only: onboard a brand new company (tenant) onto the platform.
-    pub async fn create_company(pool: &DbPool, req: CreateCompanyRequest) -> Result<Company, AppError> {
+    pub async fn create_company(
+        pool: &DbPool,
+        req: CreateCompanyRequest,
+    ) -> Result<Company, AppError> {
         let name = req.name.trim().to_string();
         if name.is_empty() {
-            return Err(AppError::ValidationError("Company name is required".to_string()));
+            return Err(AppError::ValidationError(
+                "Company name is required".to_string(),
+            ));
         }
 
         let requested_slug = req.slug.filter(|s| !s.trim().is_empty());
         let base_slug = Self::slugify(requested_slug.as_deref().unwrap_or(&name));
-        let base_slug = if base_slug.is_empty() { "company".to_string() } else { base_slug };
+        let base_slug = if base_slug.is_empty() {
+            "company".to_string()
+        } else {
+            base_slug
+        };
 
         // Guarantee slug uniqueness by appending a numeric suffix on collision,
         // rather than failing the whole request over a cosmetic identifier.
         let mut slug = base_slug.clone();
         let mut attempt = 1;
         loop {
-            let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM companies WHERE slug = ?")
-                .bind(&slug)
-                .fetch_optional(pool)
-                .await?;
+            let existing: Option<(i64,)> =
+                sqlx::query_as("SELECT id FROM companies WHERE slug = $1")
+                    .bind(&slug)
+                    .fetch_optional(pool)
+                    .await?;
             if existing.is_none() {
                 break;
             }
@@ -59,16 +69,16 @@ impl CompanyService {
 
         let company_uuid = uuid::Uuid::new_v4().to_string();
 
-        let res = sqlx::query("INSERT INTO companies (uuid, name, slug, status) VALUES (?, ?, ?, 'ACTIVE')")
-            .bind(&company_uuid)
-            .bind(&name)
-            .bind(&slug)
-            .execute(pool)
-            .await?;
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO companies (uuid, name, slug, status) VALUES ($1, $2, $3, 'ACTIVE') RETURNING id",
+        )
+        .bind(&company_uuid)
+        .bind(&name)
+        .bind(&slug)
+        .fetch_one(pool)
+        .await?;
 
-        let id = res.last_insert_rowid();
-
-        let company: Company = sqlx::query_as("SELECT * FROM companies WHERE id = ?")
+        let company: Company = sqlx::query_as("SELECT * FROM companies WHERE id = $1")
             .bind(id)
             .fetch_one(pool)
             .await?;
@@ -76,27 +86,34 @@ impl CompanyService {
         Ok(company)
     }
 
-    async fn stats_for(pool: &DbPool, company_id: i64) -> Result<(i64, i64, i64, i64, i64), AppError> {
-        let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE company_id = ?")
+    async fn stats_for(
+        pool: &DbPool,
+        company_id: i64,
+    ) -> Result<(i64, i64, i64, i64, i64), AppError> {
+        let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE company_id = $1")
             .bind(company_id)
             .fetch_one(pool)
             .await?;
-        let aircraft_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM aircraft WHERE company_id = ?")
-            .bind(company_id)
-            .fetch_one(pool)
-            .await?;
-        let component_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM components WHERE company_id = ?")
-            .bind(company_id)
-            .fetch_one(pool)
-            .await?;
-        let maintenance_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM maintenance_records WHERE company_id = ?")
-            .bind(company_id)
-            .fetch_one(pool)
-            .await?;
-        let verification_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM verification_logs WHERE company_id = ?")
-            .bind(company_id)
-            .fetch_one(pool)
-            .await?;
+        let aircraft_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM aircraft WHERE company_id = $1")
+                .bind(company_id)
+                .fetch_one(pool)
+                .await?;
+        let component_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM components WHERE company_id = $1")
+                .bind(company_id)
+                .fetch_one(pool)
+                .await?;
+        let maintenance_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM maintenance_records WHERE company_id = $1")
+                .bind(company_id)
+                .fetch_one(pool)
+                .await?;
+        let verification_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM verification_logs WHERE company_id = $1")
+                .bind(company_id)
+                .fetch_one(pool)
+                .await?;
 
         Ok((
             user_count.0,
@@ -115,8 +132,13 @@ impl CompanyService {
 
         let mut out = Vec::with_capacity(companies.len());
         for company in companies {
-            let (user_count, aircraft_count, component_count, maintenance_count, verification_count) =
-                Self::stats_for(pool, company.id).await?;
+            let (
+                user_count,
+                aircraft_count,
+                component_count,
+                maintenance_count,
+                verification_count,
+            ) = Self::stats_for(pool, company.id).await?;
             out.push(CompanySummary {
                 company,
                 user_count,
@@ -130,8 +152,11 @@ impl CompanyService {
         Ok(out)
     }
 
-    pub async fn get_company_with_stats(pool: &DbPool, id: i64) -> Result<CompanySummary, AppError> {
-        let company: Company = sqlx::query_as("SELECT * FROM companies WHERE id = ?")
+    pub async fn get_company_with_stats(
+        pool: &DbPool,
+        id: i64,
+    ) -> Result<CompanySummary, AppError> {
+        let company: Company = sqlx::query_as("SELECT * FROM companies WHERE id = $1")
             .bind(id)
             .fetch_optional(pool)
             .await?
@@ -159,7 +184,7 @@ impl CompanyService {
         company_id: i64,
         req: CreateCompanyAdminRequest,
     ) -> Result<UserResponse, AppError> {
-        let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM companies WHERE id = ?")
+        let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM companies WHERE id = $1")
             .bind(company_id)
             .fetch_optional(pool)
             .await?;
@@ -174,7 +199,9 @@ impl CompanyService {
             return Err(AppError::ValidationError("Name is required".to_string()));
         }
         if email.is_empty() || !email.contains('@') {
-            return Err(AppError::ValidationError("A valid email is required".to_string()));
+            return Err(AppError::ValidationError(
+                "A valid email is required".to_string(),
+            ));
         }
         if req.password.len() < 8 {
             return Err(AppError::ValidationError(
@@ -182,7 +209,15 @@ impl CompanyService {
             ));
         }
 
-        AuthService::insert_user(pool, Some(company_id), &name, &email, &req.password, UserRole::CompanyAdmin).await
+        AuthService::insert_user(
+            pool,
+            Some(company_id),
+            &name,
+            &email,
+            &req.password,
+            UserRole::CompanyAdmin,
+        )
+        .await
     }
 
     /// Super Admin only: list every account belonging to one company, including
@@ -190,8 +225,11 @@ impl CompanyService {
     /// own company via `GET /api/users`, exposed here only under the Super
     /// Admin's own tenant-management routes (never mixed into any other
     /// company's results).
-    pub async fn list_company_users(pool: &DbPool, company_id: i64) -> Result<Vec<UserResponse>, AppError> {
-        let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM companies WHERE id = ?")
+    pub async fn list_company_users(
+        pool: &DbPool,
+        company_id: i64,
+    ) -> Result<Vec<UserResponse>, AppError> {
+        let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM companies WHERE id = $1")
             .bind(company_id)
             .fetch_optional(pool)
             .await?;
@@ -219,7 +257,7 @@ impl CompanyService {
             )));
         }
 
-        let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM companies WHERE id = ?")
+        let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM companies WHERE id = $1")
             .bind(company_id)
             .fetch_optional(pool)
             .await?;
@@ -227,13 +265,13 @@ impl CompanyService {
             return Err(AppError::NotFound("Company not found".to_string()));
         }
 
-        sqlx::query("UPDATE companies SET status = ?, updated_at = datetime('now') WHERE id = ?")
+        sqlx::query("UPDATE companies SET status = $1, updated_at = NOW() WHERE id = $2")
             .bind(&status)
             .bind(company_id)
             .execute(pool)
             .await?;
 
-        let company: Company = sqlx::query_as("SELECT * FROM companies WHERE id = ?")
+        let company: Company = sqlx::query_as("SELECT * FROM companies WHERE id = $1")
             .bind(company_id)
             .fetch_one(pool)
             .await?;
@@ -245,12 +283,20 @@ impl CompanyService {
     /// Super Admin's per-company oversight view and a Company Admin's own
     /// dashboard (`GET /api/analytics/overview`) — the caller's `company_id`
     /// is always what gets passed in, so it never crosses tenant boundaries.
-    pub async fn get_work_analytics(pool: &DbPool, company_id: i64) -> Result<WorkAnalytics, AppError> {
-        let (total_users, total_aircraft, total_components, total_maintenance_records, total_verifications) =
-            Self::stats_for(pool, company_id).await?;
+    pub async fn get_work_analytics(
+        pool: &DbPool,
+        company_id: i64,
+    ) -> Result<WorkAnalytics, AppError> {
+        let (
+            total_users,
+            total_aircraft,
+            total_components,
+            total_maintenance_records,
+            total_verifications,
+        ) = Self::stats_for(pool, company_id).await?;
 
         let verifications_passed: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM verification_logs WHERE company_id = ? AND final_result = 'AUTHENTIC'",
+            "SELECT COUNT(*) FROM verification_logs WHERE company_id = $1 AND final_result = 'AUTHENTIC'",
         )
         .bind(company_id)
         .fetch_one(pool)
@@ -259,7 +305,7 @@ impl CompanyService {
 
         let maintenance_by_result: Vec<MaintenanceResultCount> = sqlx::query_as(
             "SELECT inspection_result, COUNT(*) as count FROM maintenance_records \
-             WHERE company_id = ? GROUP BY inspection_result",
+             WHERE company_id = $1 GROUP BY inspection_result",
         )
         .bind(company_id)
         .fetch_all(pool)
@@ -268,8 +314,8 @@ impl CompanyService {
         let records_by_user: Vec<UserWorkCount> = sqlx::query_as(
             "SELECT u.id as user_id, u.name as user_name, COUNT(m.id) as maintenance_count \
              FROM users u \
-             LEFT JOIN maintenance_records m ON m.technician_id = u.id AND m.company_id = ? \
-             WHERE u.company_id = ? \
+             LEFT JOIN maintenance_records m ON m.technician_id = u.id AND m.company_id = $1 \
+             WHERE u.company_id = $2 \
              GROUP BY u.id, u.name \
              ORDER BY maintenance_count DESC",
         )

@@ -9,7 +9,10 @@ pub mod tags;
 pub mod users;
 pub mod verification;
 
-use crate::{config::Config, db::DbPool, middleware::LoginRateLimiter, services::blockchain_service::BlockchainService};
+use crate::{
+    config::Config, db::DbPool, middleware::LoginRateLimiter,
+    services::blockchain_service::BlockchainService,
+};
 use axum::http::{HeaderValue, Method};
 use axum::{
     routing::{get, post, put},
@@ -54,10 +57,22 @@ pub fn create_router(pool: DbPool, config: Config, blockchain: BlockchainService
         .route("/api/companies", post(companies::create_company))
         .route("/api/companies", get(companies::list_companies))
         .route("/api/companies/:id", get(companies::get_company))
-        .route("/api/companies/:id/analytics", get(companies::get_company_analytics))
-        .route("/api/companies/:id/admins", post(companies::create_company_admin))
-        .route("/api/companies/:id/users", get(companies::list_company_users))
-        .route("/api/companies/:id/status", put(companies::update_company_status))
+        .route(
+            "/api/companies/:id/analytics",
+            get(companies::get_company_analytics),
+        )
+        .route(
+            "/api/companies/:id/admins",
+            post(companies::create_company_admin),
+        )
+        .route(
+            "/api/companies/:id/users",
+            get(companies::list_company_users),
+        )
+        .route(
+            "/api/companies/:id/status",
+            put(companies::update_company_status),
+        )
         // Company-scoped work analytics — Company Admin only
         .route("/api/analytics/overview", get(analytics::get_overview))
         // User management routes (company admin only, scoped to their own company)
@@ -77,12 +92,24 @@ pub fn create_router(pool: DbPool, config: Config, blockchain: BlockchainService
         // Maintenance routes
         .route("/api/maintenance", post(maintenance::create_maintenance))
         .route("/api/maintenance", get(maintenance::list_maintenance))
-        .route("/api/components/:id/history", get(maintenance::get_component_history))
+        .route(
+            "/api/components/:id/history",
+            get(maintenance::get_component_history),
+        )
         // Verification routes
         .route("/api/verification/nfc", post(verification::verify_nfc))
-        .route("/api/verification/logs", get(verification::list_verifications))
-        .route("/api/components/:id/verification", get(verification::get_component_verifications))
-        .route("/api/blockchain/verify", post(verification::verify_blockchain_record))
+        .route(
+            "/api/verification/logs",
+            get(verification::list_verifications),
+        )
+        .route(
+            "/api/components/:id/verification",
+            get(verification::get_component_verifications),
+        )
+        .route(
+            "/api/blockchain/verify",
+            post(verification::verify_blockchain_record),
+        )
         // State & Extensions
         .layer(Extension(config_arc))
         .layer(Extension(blockchain_arc))

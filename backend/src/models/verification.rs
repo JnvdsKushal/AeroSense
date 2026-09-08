@@ -1,11 +1,12 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NfcTagScanData {
-    pub identifier: String,       // Hardware UID (e.g., "04:A3:91:XX")
-    pub technology: String,       // "NFC" or "UHF_RFID"
-    pub security_type: String,    // "MOCK", "BASIC_UID", "SECURE_NTAG424"
+    pub identifier: String,    // Hardware UID (e.g., "04:A3:91:XX")
+    pub technology: String,    // "NFC" or "UHF_RFID"
+    pub security_type: String, // "MOCK", "BASIC_UID", "SECURE_NTAG424"
     pub raw_payload: Option<String>,
     pub dynamic_counter: Option<u32>,
     pub cmac_signature: Option<String>,
@@ -30,7 +31,7 @@ pub struct VerificationLog {
     pub blockchain_result: bool,
     pub final_result: String,
     pub failure_reason: Option<String>,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 /// Same fields as `VerificationLog`, plus the scanned component's serial
@@ -50,7 +51,7 @@ pub struct VerificationLogWithComponent {
     pub blockchain_result: bool,
     pub final_result: String,
     pub failure_reason: Option<String>,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]

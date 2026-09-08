@@ -18,33 +18,39 @@ async fn test_record_hash_length() {
     assert_eq!(hash_result.len(), 64);
 }
 
-/// Spins up the real router against a throwaway on-disk SQLite database and
+/// Spins up the real router against a PostgreSQL database and
 /// exercises the multi-tenant boundary end-to-end over actual HTTP:
 ///   - a Super Admin can create companies and provision each one's admin
 ///   - a Company Admin can manage their own company's people and data
 ///   - none of company A's data (aircraft, users, analytics) is visible to
 ///     company B, or to the Super Admin's operational routes, and vice versa
 #[tokio::test]
+#[ignore = "requires a live PostgreSQL DATABASE_URL"]
 async fn test_multi_tenant_isolation() {
     // --- Unique, isolated environment for this test run ---
-    let db_path = std::env::temp_dir().join(format!("aero_sense_test_{}.db", uuid::Uuid::new_v4()));
-    let database_url = format!("sqlite://{}?mode=rwc", db_path.display());
-
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgresql://localhost/aero_sense_test".to_string());
     std::env::set_var("DATABASE_URL", &database_url);
     std::env::set_var("JWT_SECRET", "test-only-jwt-secret");
     std::env::set_var("SUPER_ADMIN_EMAIL", "super@test-aero.local");
     std::env::set_var("SUPER_ADMIN_PASSWORD", "SuperSecret123!");
 
     let config = Config::from_env();
-    let pool = connect_and_migrate(&config).await.expect("db init should succeed");
+    let pool = connect_and_migrate(&config)
+        .await
+        .expect("db init should succeed");
     let blockchain = BlockchainService::new(pool.clone());
-    seed(&pool, &config, &blockchain).await.expect("seeding should succeed");
+    seed(&pool, &config, &blockchain)
+        .await
+        .expect("seeding should succeed");
     let app = create_router(pool, config.clone(), blockchain);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("failed to bind test listener");
-    let addr = listener.local_addr().expect("listener should have a local addr");
+    let addr = listener
+        .local_addr()
+        .expect("listener should have a local addr");
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
@@ -94,7 +100,14 @@ async fn test_multi_tenant_isolation() {
     }
 
     // --- Super Admin logs in and onboards two separate companies ---
-    let super_token = login(&client, &base, "Super Admin", "super@test-aero.local", "SuperSecret123!").await;
+    let super_token = login(
+        &client,
+        &base,
+        "Super Admin",
+        "super@test-aero.local",
+        "SuperSecret123!",
+    )
+    .await;
 
     let create_company = |name: &'static str| {
         let client = client.clone();
@@ -138,13 +151,41 @@ async fn test_multi_tenant_isolation() {
     create_admin(company_a_id, "admin-a@test-aero.local").await;
     create_admin(company_b_id, "admin-b@test-aero.local").await;
 
-    let token_a = login(&client, &base, "Falcon Airlines", "admin-a@test-aero.local", "AdminPass123!").await;
-    let token_b = login(&client, &base, "Condor Aviation", "admin-b@test-aero.local", "AdminPass123!").await;
+    let token_a = login(
+        &client,
+        &base,
+        "Falcon Airlines",
+        "admin-a@test-aero.local",
+        "AdminPass123!",
+    )
+    .await;
+    let token_b = login(
+        &client,
+        &base,
+        "Condor Aviation",
+        "admin-b@test-aero.local",
+        "AdminPass123!",
+    )
+    .await;
 
     // --- Right credentials, wrong company name: must fail, and must not
     //     leak which part of the triple was wrong ---
-    assert_login_rejected(&client, &base, "Condor Aviation", "admin-a@test-aero.local", "AdminPass123!").await;
-    assert_login_rejected(&client, &base, "Falcon Airlines", "super@test-aero.local", "SuperSecret123!").await;
+    assert_login_rejected(
+        &client,
+        &base,
+        "Condor Aviation",
+        "admin-a@test-aero.local",
+        "AdminPass123!",
+    )
+    .await;
+    assert_login_rejected(
+        &client,
+        &base,
+        "Falcon Airlines",
+        "super@test-aero.local",
+        "SuperSecret123!",
+    )
+    .await;
 
     // --- Each admin creates an aircraft inside their own company ---
     let create_aircraft = |token: String, reg: &'static str| {
@@ -162,7 +203,12 @@ async fn test_multi_tenant_isolation() {
                 .send()
                 .await
                 .unwrap();
-            assert_eq!(res.status(), 201, "aircraft creation should succeed for {}", reg);
+            assert_eq!(
+                res.status(),
+                201,
+                "aircraft creation should succeed for {}",
+                reg
+            );
             let body: Value = res.json().await.unwrap();
             body["id"].as_i64().expect("aircraft id present")
         }
@@ -186,8 +232,14 @@ async fn test_multi_tenant_isolation() {
         .iter()
         .map(|a| a["registration_number"].as_str().unwrap())
         .collect();
-    assert!(regs.contains(&"CA-TEST-001"), "company B should see its own aircraft");
-    assert!(!regs.contains(&"AF-TEST-001"), "company B must NOT see company A's aircraft");
+    assert!(
+        regs.contains(&"CA-TEST-001"),
+        "company B should see its own aircraft"
+    );
+    assert!(
+        !regs.contains(&"AF-TEST-001"),
+        "company B must NOT see company A's aircraft"
+    );
 
     // --- Direct lookup by ID across tenants must 404, not leak the record ---
     let cross_tenant_get = client
@@ -218,7 +270,10 @@ async fn test_multi_tenant_isolation() {
         .map(|u| u["email"].as_str().unwrap())
         .collect();
     assert!(emails.contains(&"admin-b@test-aero.local"));
-    assert!(!emails.contains(&"admin-a@test-aero.local"), "company B must not see company A's users");
+    assert!(
+        !emails.contains(&"admin-a@test-aero.local"),
+        "company B must not see company A's users"
+    );
 
     // --- Company B's work analytics must reflect only its own data ---
     let overview_res = client
@@ -229,7 +284,10 @@ async fn test_multi_tenant_isolation() {
         .unwrap();
     assert_eq!(overview_res.status(), 200);
     let overview: Value = overview_res.json().await.unwrap();
-    assert_eq!(overview["total_aircraft"], 1, "company B should only count its own aircraft");
+    assert_eq!(
+        overview["total_aircraft"], 1,
+        "company B should only count its own aircraft"
+    );
 
     // --- The Super Admin has no company, so operational routes must reject it ---
     let super_aircraft_res = client
@@ -266,8 +324,10 @@ async fn test_multi_tenant_isolation() {
         .unwrap();
     assert_eq!(company_a_analytics.status(), 200);
     let analytics_a: Value = company_a_analytics.json().await.unwrap();
-    assert_eq!(analytics_a["total_aircraft"], 1, "company A's analytics should only count its own aircraft");
+    assert_eq!(
+        analytics_a["total_aircraft"], 1,
+        "company A's analytics should only count its own aircraft"
+    );
 
-    // Cleanup the throwaway database file.
-    let _ = std::fs::remove_file(&db_path);
+    // No file cleanup needed for PostgreSQL.
 }

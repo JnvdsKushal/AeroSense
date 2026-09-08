@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -11,7 +12,7 @@ pub struct MaintenanceRecord {
     pub parts_replaced: Option<String>,
     pub inspection_result: String,
     pub record_hash: String,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +35,7 @@ pub struct MaintenanceRecordResponse {
     pub parts_replaced: Option<String>,
     pub inspection_result: String,
     pub record_hash: String,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 /// One row per maintenance record, joined against components and users —
@@ -54,5 +55,5 @@ pub struct MaintenanceRecordWithComponent {
     pub parts_replaced: Option<String>,
     pub inspection_result: String,
     pub record_hash: String,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }

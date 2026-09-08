@@ -44,7 +44,8 @@ pub async fn verify_nfc(
     }
 
     let mock_nfc = MockNfcService::new();
-    let res = VerificationService::verify_nfc_tag(&pool, company_id, &mock_nfc, &blockchain, req).await?;
+    let res =
+        VerificationService::verify_nfc_tag(&pool, company_id, &mock_nfc, &blockchain, req).await?;
     Ok(Json(res))
 }
 
@@ -54,12 +55,11 @@ pub async fn list_verifications(
 ) -> Result<Json<Vec<VerificationLog>>, AppError> {
     let company_id = require_company_scope(&user)?;
 
-    let logs: Vec<VerificationLog> = sqlx::query_as(
-        "SELECT * FROM verification_logs WHERE company_id = ? ORDER BY id DESC"
-    )
-    .bind(company_id)
-    .fetch_all(&pool)
-    .await?;
+    let logs: Vec<VerificationLog> =
+        sqlx::query_as("SELECT * FROM verification_logs WHERE company_id = $1 ORDER BY id DESC")
+            .bind(company_id)
+            .fetch_all(&pool)
+            .await?;
 
     Ok(Json(logs))
 }
@@ -72,7 +72,7 @@ pub async fn get_component_verifications(
     let company_id = require_company_scope(&user)?;
 
     let logs: Vec<VerificationLog> = sqlx::query_as(
-        "SELECT * FROM verification_logs WHERE component_id = ? AND company_id = ? ORDER BY id DESC"
+        "SELECT * FROM verification_logs WHERE component_id = $1 AND company_id = $2 ORDER BY id DESC"
     )
     .bind(component_id)
     .bind(company_id)
@@ -91,16 +91,20 @@ pub async fn verify_blockchain_record(
     let company_id = require_company_scope(&user)?;
 
     let record: Option<(String,)> = sqlx::query_as(
-        "SELECT record_hash FROM maintenance_records WHERE id = ? AND company_id = ?"
+        "SELECT record_hash FROM maintenance_records WHERE id = $1 AND company_id = $2",
     )
     .bind(req.record_id)
     .bind(company_id)
     .fetch_optional(&pool)
     .await?;
 
-    let db_hash = record.map(|r| r.0).ok_or_else(|| AppError::NotFound("Maintenance record not found".to_string()))?;
+    let db_hash = record
+        .map(|r| r.0)
+        .ok_or_else(|| AppError::NotFound("Maintenance record not found".to_string()))?;
 
-    let matches = blockchain.verify_record_hash(req.record_id, &db_hash).await?;
+    let matches = blockchain
+        .verify_record_hash(req.record_id, &db_hash)
+        .await?;
 
     let match_status = if matches { "VALID" } else { "MISMATCH" };
 

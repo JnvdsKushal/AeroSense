@@ -6,7 +6,10 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait NfcService: Send + Sync {
-    async fn verify_tag_identity(&self, scan_data: &NfcTagScanData) -> Result<NfcAuthResult, AppError>;
+    async fn verify_tag_identity(
+        &self,
+        scan_data: &NfcTagScanData,
+    ) -> Result<NfcAuthResult, AppError>;
 }
 
 pub struct MockNfcService;
@@ -19,7 +22,10 @@ impl MockNfcService {
 
 #[async_trait]
 impl NfcService for MockNfcService {
-    async fn verify_tag_identity(&self, scan_data: &NfcTagScanData) -> Result<NfcAuthResult, AppError> {
+    async fn verify_tag_identity(
+        &self,
+        scan_data: &NfcTagScanData,
+    ) -> Result<NfcAuthResult, AppError> {
         if scan_data.identifier.trim().is_empty() {
             return Ok(NfcAuthResult {
                 authenticated: false,

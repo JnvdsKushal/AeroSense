@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: i64,       // User ID
+    pub sub: i64, // User ID
     pub uuid: String,
     pub name: String,
     pub email: String,
@@ -91,7 +91,9 @@ where
             &DecodingKey::from_secret(config.jwt_secret.as_bytes()),
             &Validation::default(),
         )
-        .map_err(|_| AppError::Unauthorized("Invalid or expired authentication token".to_string()))?;
+        .map_err(|_| {
+            AppError::Unauthorized("Invalid or expired authentication token".to_string())
+        })?;
 
         Ok(AuthenticatedUser(token_data.claims))
     }

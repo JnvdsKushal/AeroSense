@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -9,14 +10,14 @@ pub struct ComponentTag {
     pub identifier: String,
     pub security_type: String,
     pub tamper_status: String,
-    pub registered_at: String,
-    pub updated_at: String,
+    pub registered_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterTagRequest {
     pub component_id: i64,
-    pub technology: String, // e.g. "NFC", "UHF_RFID"
-    pub identifier: String, // e.g. "04:A3:91:XX"
+    pub technology: String,            // e.g. "NFC", "UHF_RFID"
+    pub identifier: String,            // e.g. "04:A3:91:XX"
     pub security_type: Option<String>, // e.g. "MOCK", "BASIC_UID", "SECURE_NTAG424"
 }

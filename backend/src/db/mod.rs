@@ -5,10 +5,10 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
-use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use tracing::info;
 
-pub type DbPool = Pool<Sqlite>;
+pub type DbPool = Pool<Postgres>;
 
 /// Connects to the database and runs migrations. Does not seed anything —
 /// seeding needs a `BlockchainService`, which itself needs this pool, so
@@ -17,7 +17,7 @@ pub type DbPool = Pool<Sqlite>;
 pub async fn connect_and_migrate(config: &Config) -> Result<DbPool, AppError> {
     info!("Connecting to database at {}", config.database_url);
 
-    let pool = SqlitePoolOptions::new()
+    let pool = PgPoolOptions::new()
         .max_connections(10)
         .connect(&config.database_url)
         .await?;
@@ -33,7 +33,11 @@ pub async fn connect_and_migrate(config: &Config) -> Result<DbPool, AppError> {
 
 /// Seeds the Super Admin (always) and, if `config.demo_seed` is set, the
 /// demo tenant. Call after both the pool and the `BlockchainService` exist.
-pub async fn seed(pool: &DbPool, config: &Config, blockchain: &BlockchainService) -> Result<(), AppError> {
+pub async fn seed(
+    pool: &DbPool,
+    config: &Config,
+    blockchain: &BlockchainService,
+) -> Result<(), AppError> {
     seed_super_admin(pool, config).await?;
 
     if config.demo_seed {
@@ -51,7 +55,7 @@ pub async fn seed(pool: &DbPool, config: &Config, blockchain: &BlockchainService
 /// from SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD, which must be set in the
 /// environment (see backend/.env.example) — there is no hardcoded fallback.
 async fn seed_super_admin(pool: &DbPool, config: &Config) -> Result<(), AppError> {
-    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE email = ?")
+    let existing: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
         .bind(&config.super_admin_email)
         .fetch_optional(pool)
         .await?;
@@ -60,7 +64,10 @@ async fn seed_super_admin(pool: &DbPool, config: &Config) -> Result<(), AppError
         return Ok(());
     }
 
-    info!("Seeding default super admin account ({})...", config.super_admin_email);
+    info!(
+        "Seeding default super admin account ({})...",
+        config.super_admin_email
+    );
 
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
@@ -72,7 +79,7 @@ async fn seed_super_admin(pool: &DbPool, config: &Config) -> Result<(), AppError
     let user_uuid = uuid::Uuid::new_v4().to_string();
 
     sqlx::query(
-        "INSERT INTO users (uuid, name, email, password_hash, role, company_id) VALUES (?, ?, ?, ?, ?, NULL)",
+        "INSERT INTO users (uuid, name, email, password_hash, role, company_id) VALUES ($1, $2, $3, $4, $5, NULL)",
     )
     .bind(&user_uuid)
     .bind("Super Admin")
@@ -116,22 +123,29 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
 
     // --- Company ---
     let company_uuid = uuid::Uuid::new_v4().to_string();
-    let company_res = sqlx::query(
-        "INSERT INTO companies (uuid, name, slug, status) VALUES (?, ?, ?, 'ACTIVE')",
+    let company_id: i64 = sqlx::query_scalar(
+        "INSERT INTO companies (uuid, name, slug, status) VALUES ($1, $2, $3, 'ACTIVE') RETURNING id",
     )
     .bind(&company_uuid)
     .bind("Skyline Aviation Group")
     .bind("skyline-aviation")
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
-    let company_id = company_res.last_insert_rowid();
 
     // --- Users: one per operational role, all sharing a demo password ---
     const DEMO_PASSWORD: &str = "DemoPass123!";
     let demo_users: [(&str, &str, &str); 4] = [
         ("Ava Martinez", "admin@skyline-demo.test", "COMPANY_ADMIN"),
-        ("Raj Patel", "manufacturer@skyline-demo.test", "MANUFACTURER"),
-        ("Lena Novak", "tech@skyline-demo.test", "MAINTENANCE_TECHNICIAN"),
+        (
+            "Raj Patel",
+            "manufacturer@skyline-demo.test",
+            "MANUFACTURER",
+        ),
+        (
+            "Lena Novak",
+            "tech@skyline-demo.test",
+            "MAINTENANCE_TECHNICIAN",
+        ),
         ("Owen Brooks", "inspector@skyline-demo.test", "INSPECTOR"),
     ];
 
@@ -139,9 +153,9 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
     for (name, email, role) in demo_users {
         let password_hash = hash_password(DEMO_PASSWORD)?;
         let user_uuid = uuid::Uuid::new_v4().to_string();
-        let res = sqlx::query(
+        let id: i64 = sqlx::query_scalar(
             "INSERT INTO users (uuid, name, email, password_hash, role, company_id) \
-             VALUES (?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
         )
         .bind(&user_uuid)
         .bind(name)
@@ -149,11 +163,11 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
         .bind(&password_hash)
         .bind(role)
         .bind(company_id)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
 
         if role == "MAINTENANCE_TECHNICIAN" {
-            technician_id = Some(res.last_insert_rowid());
+            technician_id = Some(id);
         }
     }
     let technician_id = technician_id
@@ -167,33 +181,53 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
     let mut aircraft_ids = Vec::with_capacity(aircraft_defs.len());
     for (reg, model, manufacturer) in aircraft_defs {
         let aircraft_uuid = uuid::Uuid::new_v4().to_string();
-        let res = sqlx::query(
+        let id: i64 = sqlx::query_scalar(
             "INSERT INTO aircraft (aircraft_uuid, registration_number, model, manufacturer, status, company_id) \
-             VALUES (?, ?, ?, ?, 'ACTIVE', ?)",
+             VALUES ($1, $2, $3, $4, 'ACTIVE', $5) RETURNING id",
         )
         .bind(&aircraft_uuid)
         .bind(reg)
         .bind(model)
         .bind(manufacturer)
         .bind(company_id)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
-        aircraft_ids.push(res.last_insert_rowid());
+        aircraft_ids.push(id);
     }
 
     // --- Components (bound to the aircraft above) ---
     let component_defs = [
-        (aircraft_ids[0], "ENG-SN-88213", "Turbofan Engine", "CFM International"),
-        (aircraft_ids[0], "APU-SN-44190", "Auxiliary Power Unit", "Honeywell"),
-        (aircraft_ids[1], "ENG-SN-99042", "Turbofan Engine", "CFM International"),
-        (aircraft_ids[1], "LGR-SN-77310", "Landing Gear Assembly", "Safran"),
+        (
+            aircraft_ids[0],
+            "ENG-SN-88213",
+            "Turbofan Engine",
+            "CFM International",
+        ),
+        (
+            aircraft_ids[0],
+            "APU-SN-44190",
+            "Auxiliary Power Unit",
+            "Honeywell",
+        ),
+        (
+            aircraft_ids[1],
+            "ENG-SN-99042",
+            "Turbofan Engine",
+            "CFM International",
+        ),
+        (
+            aircraft_ids[1],
+            "LGR-SN-77310",
+            "Landing Gear Assembly",
+            "Safran",
+        ),
     ];
     let mut component_ids = Vec::with_capacity(component_defs.len());
     for (aircraft_id, serial, component_type, manufacturer) in component_defs {
         let component_uuid = uuid::Uuid::new_v4().to_string();
-        let res = sqlx::query(
+        let id: i64 = sqlx::query_scalar(
             "INSERT INTO components (component_uuid, aircraft_id, serial_number, component_type, manufacturer, status, company_id) \
-             VALUES (?, ?, ?, ?, ?, 'OPERATIONAL', ?)",
+             VALUES ($1, $2, $3, $4, $5, 'OPERATIONAL', $6) RETURNING id",
         )
         .bind(&component_uuid)
         .bind(aircraft_id)
@@ -201,17 +235,22 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
         .bind(component_type)
         .bind(manufacturer)
         .bind(company_id)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
-        component_ids.push(res.last_insert_rowid());
+        component_ids.push(id);
     }
 
     // --- NFC tags: one intact tag per component, memorable identifiers for live demo typing ---
-    let tag_identifiers = ["DEMO-NFC-0001", "DEMO-NFC-0002", "DEMO-NFC-0003", "DEMO-NFC-0004"];
+    let tag_identifiers = [
+        "DEMO-NFC-0001",
+        "DEMO-NFC-0002",
+        "DEMO-NFC-0003",
+        "DEMO-NFC-0004",
+    ];
     for (component_id, identifier) in component_ids.iter().zip(tag_identifiers.iter()) {
         sqlx::query(
             "INSERT INTO component_tags (component_id, technology, identifier, security_type, tamper_status, company_id) \
-             VALUES (?, 'NFC', ?, 'MOCK', 'INTACT', ?)",
+             VALUES ($1, 'NFC', $2, 'MOCK', 'INTACT', $3)",
         )
         .bind(component_id)
         .bind(identifier)
@@ -233,10 +272,10 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
             &created_at,
         );
 
-        let res = sqlx::query(
+        let record_id: i64 = sqlx::query_scalar(
             "INSERT INTO maintenance_records \
              (component_id, technician_id, maintenance_type, description, parts_replaced, inspection_result, record_hash, created_at, company_id) \
-             VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8) RETURNING id",
         )
         .bind(component_id)
         .bind(technician_id)
@@ -246,10 +285,9 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
         .bind(&record_hash)
         .bind(&created_at)
         .bind(company_id)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
 
-        let record_id = res.last_insert_rowid();
         blockchain.store_record_hash(record_id, record_hash).await?;
     }
 
@@ -257,7 +295,10 @@ async fn seed_demo_data(pool: &DbPool, blockchain: &BlockchainService) -> Result
         "Demo tenant seeded (company_id={}). Log in as Company Admin: admin@skyline-demo.test / {}",
         company_id, DEMO_PASSWORD
     );
-    info!("Demo NFC tags ready to scan on the Verify page: {:?}", tag_identifiers);
+    info!(
+        "Demo NFC tags ready to scan on the Verify page: {:?}",
+        tag_identifiers
+    );
 
     Ok(())
 }

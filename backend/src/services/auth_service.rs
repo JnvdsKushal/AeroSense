@@ -3,7 +3,10 @@ use crate::{
     db::DbPool,
     errors::AppError,
     middleware::auth::create_jwt,
-    models::{AuthResponse, ChangePasswordRequest, Company, CreateUserRequest, LoginRequest, User, UserResponse, UserRole},
+    models::{
+        AuthResponse, ChangePasswordRequest, Company, CreateUserRequest, LoginRequest, User,
+        UserResponse, UserRole,
+    },
 };
 use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
@@ -17,12 +20,18 @@ pub const SUPER_ADMIN_COMPANY_NAME: &str = "Super Admin";
 pub struct AuthService;
 
 impl AuthService {
-    pub async fn login(pool: &DbPool, config: &Config, req: LoginRequest) -> Result<AuthResponse, AppError> {
+    pub async fn login(
+        pool: &DbPool,
+        config: &Config,
+        req: LoginRequest,
+    ) -> Result<AuthResponse, AppError> {
         let company_name = req.company_name.trim();
         let email = req.email.trim().to_lowercase();
 
         if company_name.is_empty() {
-            return Err(AppError::ValidationError("Company name is required".to_string()));
+            return Err(AppError::ValidationError(
+                "Company name is required".to_string(),
+            ));
         }
         if email.is_empty() {
             return Err(AppError::ValidationError("Email is required".to_string()));
@@ -31,9 +40,10 @@ impl AuthService {
         // Deliberately generic error for every failure branch below (unknown
         // email, wrong company name, wrong password) so a bad actor can't use
         // the response to enumerate which part of the triple was wrong.
-        let invalid = || AppError::Unauthorized("Invalid company name, email, or password".to_string());
+        let invalid =
+            || AppError::Unauthorized("Invalid company name, email, or password".to_string());
 
-        let user: Option<User> = sqlx::query_as("SELECT * FROM users WHERE email = ?")
+        let user: Option<User> = sqlx::query_as("SELECT * FROM users WHERE email = $1")
             .bind(&email)
             .fetch_optional(pool)
             .await?;
@@ -51,10 +61,11 @@ impl AuthService {
                 }
             }
             Some(company_id) => {
-                let company: Option<Company> = sqlx::query_as("SELECT * FROM companies WHERE id = ?")
-                    .bind(company_id)
-                    .fetch_optional(pool)
-                    .await?;
+                let company: Option<Company> =
+                    sqlx::query_as("SELECT * FROM companies WHERE id = $1")
+                        .bind(company_id)
+                        .fetch_optional(pool)
+                        .await?;
                 let company = company.ok_or_else(invalid)?;
                 if !company.name.eq_ignore_ascii_case(company_name) {
                     return Err(invalid());
@@ -72,8 +83,9 @@ impl AuthService {
         }
 
         // Verify password hash
-        let parsed_hash = PasswordHash::new(&user.password_hash)
-            .map_err(|e| AppError::InternalServerError(format!("Invalid password hash format: {}", e)))?;
+        let parsed_hash = PasswordHash::new(&user.password_hash).map_err(|e| {
+            AppError::InternalServerError(format!("Invalid password hash format: {}", e))
+        })?;
 
         Argon2::default()
             .verify_password(req.password.as_bytes(), &parsed_hash)
@@ -98,7 +110,7 @@ impl AuthService {
     }
 
     pub async fn get_user_by_id(pool: &DbPool, user_id: i64) -> Result<UserResponse, AppError> {
-        let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
+        let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(pool)
             .await?
@@ -111,7 +123,11 @@ impl AuthService {
     /// `company_id` must come from the authenticated admin's session — never
     /// from the request body — so an admin can never place an account into a
     /// company that isn't theirs.
-    pub async fn create_user(pool: &DbPool, company_id: i64, req: CreateUserRequest) -> Result<UserResponse, AppError> {
+    pub async fn create_user(
+        pool: &DbPool,
+        company_id: i64,
+        req: CreateUserRequest,
+    ) -> Result<UserResponse, AppError> {
         let name = req.name.trim().to_string();
         let email = req.email.trim().to_lowercase();
 
@@ -119,7 +135,9 @@ impl AuthService {
             return Err(AppError::ValidationError("Name is required".to_string()));
         }
         if email.is_empty() || !email.contains('@') {
-            return Err(AppError::ValidationError("A valid email is required".to_string()));
+            return Err(AppError::ValidationError(
+                "A valid email is required".to_string(),
+            ));
         }
         if req.password.len() < 8 {
             return Err(AppError::ValidationError(
@@ -157,8 +175,8 @@ impl AuthService {
 
         let user_uuid = uuid::Uuid::new_v4().to_string();
 
-        let res = sqlx::query(
-            "INSERT INTO users (uuid, name, email, password_hash, role, company_id) VALUES (?, ?, ?, ?, ?, ?)",
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (uuid, name, email, password_hash, role, company_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
         )
         .bind(&user_uuid)
         .bind(name)
@@ -166,17 +184,16 @@ impl AuthService {
         .bind(&password_hash)
         .bind(role.as_str())
         .bind(company_id)
-        .execute(pool)
+        .fetch_one(pool)
         .await
         .map_err(|e| {
-            if e.to_string().contains("UNIQUE constraint failed") {
+            if e.to_string().contains("duplicate key value violates unique constraint") {
                 AppError::Conflict("A user with this email already exists".to_string())
             } else {
                 AppError::DatabaseError(e)
             }
         })?;
 
-        let id = res.last_insert_rowid();
         Self::get_user_by_id(pool, id).await
     }
 
@@ -195,14 +212,15 @@ impl AuthService {
             ));
         }
 
-        let user: User = sqlx::query_as("SELECT * FROM users WHERE id = ?")
+        let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_optional(pool)
             .await?
             .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-        let parsed_hash = PasswordHash::new(&user.password_hash)
-            .map_err(|e| AppError::InternalServerError(format!("Invalid password hash format: {}", e)))?;
+        let parsed_hash = PasswordHash::new(&user.password_hash).map_err(|e| {
+            AppError::InternalServerError(format!("Invalid password hash format: {}", e))
+        })?;
 
         Argon2::default()
             .verify_password(req.current_password.as_bytes(), &parsed_hash)
@@ -214,7 +232,7 @@ impl AuthService {
             .map_err(|e| AppError::InternalServerError(format!("Password hashing error: {}", e)))?
             .to_string();
 
-        sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
             .bind(&new_hash)
             .bind(user_id)
             .execute(pool)
@@ -225,12 +243,11 @@ impl AuthService {
 
     /// Company Admin only: list users belonging to the caller's own company.
     pub async fn list_users(pool: &DbPool, company_id: i64) -> Result<Vec<UserResponse>, AppError> {
-        let users: Vec<User> = sqlx::query_as(
-            "SELECT * FROM users WHERE company_id = ? ORDER BY id ASC"
-        )
-        .bind(company_id)
-        .fetch_all(pool)
-        .await?;
+        let users: Vec<User> =
+            sqlx::query_as("SELECT * FROM users WHERE company_id = $1 ORDER BY id ASC")
+                .bind(company_id)
+                .fetch_all(pool)
+                .await?;
 
         Ok(users.into_iter().map(UserResponse::from).collect())
     }

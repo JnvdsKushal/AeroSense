@@ -45,7 +45,7 @@ impl Config {
         dotenvy::dotenv().ok();
 
         let database_url = env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "sqlite://aircraft_verification.db?mode=rwc".to_string());
+            .unwrap_or_else(|_| "postgres://localhost/aircraft_verification".to_string());
         let port = env::var("PORT")
             .unwrap_or_else(|_| "8080".to_string())
             .parse::<u16>()

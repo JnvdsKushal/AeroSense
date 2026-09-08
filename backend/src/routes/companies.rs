@@ -3,8 +3,8 @@ use crate::{
     errors::AppError,
     middleware::auth::{require_super_admin, AuthenticatedUser},
     models::{
-        Company, CompanySummary, CreateCompanyAdminRequest, CreateCompanyRequest, UserResponse,
-        UpdateCompanyStatusRequest, WorkAnalytics,
+        Company, CompanySummary, CreateCompanyAdminRequest, CreateCompanyRequest,
+        UpdateCompanyStatusRequest, UserResponse, WorkAnalytics,
     },
     services::CompanyService,
 };
